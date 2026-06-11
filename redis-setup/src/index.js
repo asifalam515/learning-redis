@@ -1,39 +1,45 @@
 import express from 'express'
 import Redis from 'ioredis'
-import mongoose from 'mongoose'
 const app = express()
 app.use(express.json())
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6380')
 const  BANNER_KEY = 'app:banner'
-app.post("/banner",async (req, res) => {
-    await redis.set(BANNER_KEY, req.body?.message || "welcome to  our website ")
-   res.json({
-    success:true,
-   })
+
+const otpKey = (phone)=>{
+    return `otp: ${phone}`
+}
+app.post("/otp",async(req,res)=>{
+    const {phone} = req.body
+    const otp  = Math.floor(100000 + Math.random() * 900000)
+    await redis.set(otpKey(phone),otp,'EX',50) //top valid only for 50 second
+    res.json({message:"OTP ",otp})
 })
 
-app.get("/banner",async(req,res)=>{
-    const message = await redis.get(BANNER_KEY)
-    res.json({message})
-})
-app.delete("/banner",async(req,res)=>{
-    await redis.del(BANNER_KEY)
-    res.json({success:true})
-})
-app.get("/banner/exists",async(req,res)=>{
-    const exists = await redis.exists(BANNER_KEY)
-    res.json({exists:Boolean(exists)})
-})
+// check 
+app.post("/otp/verify",async(req,res)=>{
+    const {phone,otp} = req.body
+    const savedOtp = await redis.get(otpKey(phone))
+    if(!savedOtp){
+        return res.status(400).json({
+            message:"otp expired"
+        })
 
-app.get('/mongo', async (req, res) => {
-const url = process.env.MONGO_URL || 'mongodb://redis:redis123@localhost:27017/mongo-basic?authSource=admin'
-if(mongoose.connection.readyState === 0) {
-    await mongoose.connect(url)
-}
-res.json({ mongo: 'MongoDB is connected',database:mongoose.connection.db.databaseName })
-}
-)
+    }
+    if(savedOtp != otp){
+            return res.status(400).json({
+            message:"Invalid OTP"
+        })
+
+    }
+    // validate user here  
+    await redis.del(otpKey(phone))
+    res.json({message:"otp verified"})
+})
+app.get("/otp/:phone/ttl",async(req,res)=>{
+    const ttl = await redis.ttl(otpKey(req.params.phone))
+  res.json({ttl})
+})
 app.listen(3000, () => {
     console.log('Server is running on port 3000')
 })
